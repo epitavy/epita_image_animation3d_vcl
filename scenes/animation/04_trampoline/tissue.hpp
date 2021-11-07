@@ -40,6 +40,8 @@ struct scene_model : scene_base
     vcl::vec3 sphere_speed;
     float sphere_mass;
 
+    int collision_impulsion_frame;
+
     PerlinNoise noise;
 
     // Simulation parameters

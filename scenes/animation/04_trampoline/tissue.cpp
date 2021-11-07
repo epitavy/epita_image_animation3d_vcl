@@ -119,7 +119,8 @@ void scene_model::collision_constraints()
                            2 * simulation_parameters.m / mass_sum * speed[i];
             speed[i] = (simulation_parameters.m - sphere_mass) / mass_sum * speed[i] +
                            2 * sphere_mass / mass_sum * sphere_speed;
-            sphere_speed = sphere_speed_tmp + u * 0.15;
+            sphere_speed = sphere_speed_tmp + u * 0.02;
+            collision_impulsion_frame = 5;
         }
 
     }
@@ -135,6 +136,7 @@ void scene_model::initialize()
 
     // Init noise
     noise = PerlinNoise();
+    collision_impulsion_frame = 0;
 
     // Rest length (length of an edge)
     simulation_parameters.L0 = 1.0f/float(N_cloth-1);
@@ -238,12 +240,12 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
     if( (!simulation_diverged || force_simulation) && h>0)
     {
         // Iterate over a fixed number of substeps between each frames
-        const size_t number_of_substeps = 4;
+        const size_t number_of_substeps = 5;
         for(size_t k=0; (!simulation_diverged  || force_simulation) && k<number_of_substeps; ++k)
         {
-            for (int i = 0; i < 8; i++){
+            for (int i = 0; i < number_of_substeps; i++){
                 compute_forces();
-                numerical_integration(h/8);
+                numerical_integration(h/number_of_substeps);
                 collision_constraints();                 // Detect and solve collision with other shapes
                 hard_constraints();                      // Enforce hard positional constraints
                 normal(position.data, connectivity, normals); // Update normals of the cloth
@@ -259,6 +261,8 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
     cloth.update_normal(normals.data);
 
     display_elements(shaders, scene, gui);
+    if (collision_impulsion_frame > 0)
+        collision_impulsion_frame--;
 
 }
 
@@ -277,7 +281,11 @@ void scene_model::numerical_integration(float h)
         p = p + h*v;
     }
 
-    sphere_speed += vec3(0, -9.81, 0) * h;
+    if (collision_impulsion_frame > 0)
+      sphere_speed -= 5 * vec3(0, -9.81, 0) * h; // Jump impulsion
+    else
+      sphere_speed += vec3(0, -9.81, 0) * h;
+
     collision_shapes.sphere_p += sphere_speed * h;
 }
 
