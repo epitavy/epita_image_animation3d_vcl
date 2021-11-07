@@ -10,7 +10,7 @@ vec3 spring_force(const vec3& pi, const vec3& pj, float L0, float K)
 {
     vec3 const pji = pj - pi;
     float const L = norm(pji);
-    return K * (L - L0) * pji / L;
+    return K / L * (L - L0) * pji;
 }
 
 // Fill value of force applied on each particle
@@ -41,6 +41,7 @@ void scene_model::compute_forces()
         force[k] = force[k]-mu*speed[k];
 
     // Wind
+    /*
     const float wind = user_parameters.wind;
     for(size_t k=0; k<N; ++k) {
         const float pressure = wind * dot(vec3{-1.f, -0.2f, 0}, normals[k]) / N;
@@ -51,6 +52,7 @@ void scene_model::compute_forces()
         rdn *= 20;
         force[k] += normals[k] * pressure * rdn;
     }
+    */
 
 
 
@@ -112,15 +114,12 @@ void scene_model::collision_constraints()
                 position[i] -= u * depth / 2.f;
             }
 
-            if (norm(speed[i]) < 0.1) {
-                speed[i] *= 0.4f;
-                continue;
-            }
-
-            float mass_factor = 2 * (sphere_mass + simulation_parameters.m);
-            vec3 v_change = u * mass_factor * dot(speed[i] - sphere_speed, u);
-            sphere_speed += simulation_parameters.m * v_change * 10.f;
-            speed[i] -= 0.01f * v_change;
+            float mass_sum = sphere_mass + simulation_parameters.m;
+            vec3 sphere_speed_tmp = (sphere_mass - simulation_parameters.m) / mass_sum * sphere_speed +
+                           2 * simulation_parameters.m / mass_sum * speed[i];
+            speed[i] = (simulation_parameters.m - sphere_mass) / mass_sum * speed[i] +
+                           2 * sphere_mass / mass_sum * sphere_speed;
+            sphere_speed = sphere_speed_tmp + u * 0.15;
         }
 
     }
@@ -132,7 +131,7 @@ void scene_model::collision_constraints()
 void scene_model::initialize()
 {
     // Number of samples of the model (total number of particles is N_cloth x N_cloth)
-    const size_t N_cloth = 40;
+    const size_t N_cloth = 30;
 
     // Init noise
     noise = PerlinNoise();
@@ -148,16 +147,14 @@ void scene_model::initialize()
     position = buffer2D_from_vector(base_cloth.position, N_cloth, N_cloth);
 
     // Set hard positional constraints
-    for (int k = 0; k < 4; ++k) {
-        float t = k / 4.f;
-        float t2 = (k+1) / 4.f;
+    for (int k = 0; k < 3; ++k) {
+        float t = k / 3.f;
+        float t2 = (k+1) / 3.f;
 
         int p1 = t * N_cloth;
         int p2 = p1 * N_cloth + N_cloth - 1;
         int p3 = (t2 * N_cloth - 1) + N_cloth * (N_cloth - 1);
         int p4 = (t2 * N_cloth - 1) * N_cloth;
-
-        printf("%d, %d, %d, %d\n", p1, p2, p3, p4);
 
         positional_constraints[p1] = position[p1];
         positional_constraints[p2] = position[p2];
@@ -173,7 +170,7 @@ void scene_model::initialize()
     sphere_speed = vec3(0, 0, 0);
 
     // Set collision shapes
-    collision_shapes.sphere_p = {0.5,1.2f,0};
+    collision_shapes.sphere_p = {0.51,2.0f,0};
     collision_shapes.sphere_r = 0.1f;
     collision_shapes.ground_height = 0.1f;
 
@@ -209,11 +206,11 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
 
     // Default value for simulation parameters
     user_parameters.K    = 100.0f;
-    user_parameters.m    = 5.0f;
+    user_parameters.m    = 2.0f;
     user_parameters.wind = 10.0f;
     user_parameters.mu   = 0.02f;
 
-    sphere_mass = 100.f;
+    sphere_mass = 70.f;
 
 
 
@@ -244,13 +241,15 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
         const size_t number_of_substeps = 4;
         for(size_t k=0; (!simulation_diverged  || force_simulation) && k<number_of_substeps; ++k)
         {
-            compute_forces();
-            numerical_integration(h);
-            collision_constraints();                 // Detect and solve collision with other shapes
+            for (int i = 0; i < 8; i++){
+                compute_forces();
+                numerical_integration(h/8);
+                collision_constraints();                 // Detect and solve collision with other shapes
+                hard_constraints();                      // Enforce hard positional constraints
+                normal(position.data, connectivity, normals); // Update normals of the cloth
+            }
 
-            hard_constraints();                      // Enforce hard positional constraints
 
-            normal(position.data, connectivity, normals); // Update normals of the cloth
             detect_simulation_divergence();               // Check if the simulation seems to diverge
         }
     }
