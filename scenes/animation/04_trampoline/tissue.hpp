@@ -11,7 +11,7 @@ struct user_parameters_structure
     float m;    // Global mass (to be divided by the number of particles)
     float K;    // Global stiffness (to be divided by the number of particles)
     float mu;   // Damping
-    float wind; // Wind magnitude;
+    float e;   // Trampoline elasticity or "reboundness"
 };
 
 struct simulation_parameters_structure

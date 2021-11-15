@@ -106,7 +106,7 @@ void scene_model::collision_constraints()
                              2 * simulation_parameters.m / mass_sum * speed[i];
               speed[i] = (simulation_parameters.m - sphere_mass) / mass_sum * speed[i] +
                              2 * sphere_mass / mass_sum * spheres_speed[sphere];
-              spheres_speed[sphere] = sphere_speed_tmp + u * 0.03;
+              spheres_speed[sphere] = sphere_speed_tmp + u * user_parameters.e;
               collision_impulsion_frame[sphere] = 5;
           }
 
@@ -195,8 +195,8 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
     // Default value for simulation parameters
     user_parameters.K    = 100.0f;
     user_parameters.m    = 2.0f;
-    user_parameters.wind = 10.0f;
     user_parameters.mu   = 0.02f;
+    user_parameters.e   = 0.02f;
 
     sphere_mass = 70.f;
 
@@ -371,6 +371,7 @@ void scene_model::set_gui()
     ImGui::SliderFloat("Stiffness", &user_parameters.K, 1.0f, 400.0f, "%.2f s");
     ImGui::SliderFloat("Damping", &user_parameters.mu, 0.0f, 0.1f, "%.3f s");
     ImGui::SliderFloat("Mass", &user_parameters.m, 1.0f, 15.0f, "%.2f s");
+    ImGui::SliderFloat("Elasticity", &user_parameters.e, 0.0f, 0.2f, "%.3f s");
 
     ImGui::Checkbox("Wireframe",&gui_display_wireframe);
     ImGui::Checkbox("Texture",&gui_display_texture);
