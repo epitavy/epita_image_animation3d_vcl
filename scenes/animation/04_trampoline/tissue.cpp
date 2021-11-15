@@ -5,6 +5,7 @@
 
 using namespace vcl;
 
+#define N_SPHERE 2
 
 vec3 spring_force(const vec3& pi, const vec3& pj, float L0, float K)
 {
@@ -17,7 +18,6 @@ vec3 spring_force(const vec3& pi, const vec3& pj, float L0, float K)
 // - Gravity
 // - Drag
 // - Spring force
-// - Wind force
 void scene_model::compute_forces()
 {
     const size_t N = force.size();        // Total number of particles of the cloth Nu x Nv
@@ -39,21 +39,6 @@ void scene_model::compute_forces()
     const float mu = user_parameters.mu;
     for(size_t k=0; k<N; ++k)
         force[k] = force[k]-mu*speed[k];
-
-    // Wind
-    /*
-    const float wind = user_parameters.wind;
-    for(size_t k=0; k<N; ++k) {
-        const float pressure = wind * dot(vec3{-1.f, -0.2f, 0}, normals[k]) / N;
-        const vec3 noiseVec(timer.t, position[k].y, position[k].z);
-        float rdn = noise.eval(noiseVec);
-        if (rdn < 0)
-            rdn *= -1;
-        rdn *= 20;
-        force[k] += normals[k] * pressure * rdn;
-    }
-    */
-
 
 
     // Springs
@@ -99,30 +84,33 @@ void scene_model::compute_forces()
 // Handle detection and response to collision with the shape described in "collision_shapes" variable
 void scene_model::collision_constraints()
 {
-    auto& s_pos = collision_shapes.sphere_p;
+    for (int sphere = 0; sphere < N_SPHERE; sphere++) {
+      auto& s_pos = collision_shapes.spheres_p[sphere];
+      const float radius = collision_shapes.spheres_r[sphere];
 
-    for (int i = 0; i < position.size(); ++i) {
-        const float d = norm(s_pos - position[i]);
-        if (d < collision_shapes.sphere_r * 1.1) {
+      for (int i = 0; i < position.size(); ++i) {
+          const float d = norm(s_pos - position[i]);
+          if (d < radius * 1.1) {
 
-            const float depth = collision_shapes.sphere_r - d;
-            const vec3 u = (s_pos - position[i]) / d;
+              const float depth = radius - d;
+              const vec3 u = (s_pos - position[i]) / d;
 
-            if (d < collision_shapes.sphere_r){
-                // Correct position
-                s_pos += u * depth / 2.f;
-                position[i] -= u * depth / 2.f;
-            }
+              if (d < radius){
+                  // Correct position
+                  s_pos += u * depth / 2.f;
+                  position[i] -= u * depth / 2.f;
+              }
 
-            float mass_sum = sphere_mass + simulation_parameters.m;
-            vec3 sphere_speed_tmp = (sphere_mass - simulation_parameters.m) / mass_sum * sphere_speed +
-                           2 * simulation_parameters.m / mass_sum * speed[i];
-            speed[i] = (simulation_parameters.m - sphere_mass) / mass_sum * speed[i] +
-                           2 * sphere_mass / mass_sum * sphere_speed;
-            sphere_speed = sphere_speed_tmp + u * 0.02;
-            collision_impulsion_frame = 5;
-        }
+              float mass_sum = sphere_mass + simulation_parameters.m;
+              vec3 sphere_speed_tmp = (sphere_mass - simulation_parameters.m) / mass_sum * spheres_speed[sphere] +
+                             2 * simulation_parameters.m / mass_sum * speed[i];
+              speed[i] = (simulation_parameters.m - sphere_mass) / mass_sum * speed[i] +
+                             2 * sphere_mass / mass_sum * spheres_speed[sphere];
+              spheres_speed[sphere] = sphere_speed_tmp + u * 0.03;
+              collision_impulsion_frame[sphere] = 5;
+          }
 
+      }
     }
 }
 
@@ -134,9 +122,7 @@ void scene_model::initialize()
     // Number of samples of the model (total number of particles is N_cloth x N_cloth)
     const size_t N_cloth = 30;
 
-    // Init noise
-    noise = PerlinNoise();
-    collision_impulsion_frame = 0;
+    collision_impulsion_frame.fill(0);
 
     // Rest length (length of an edge)
     simulation_parameters.L0 = 1.0f/float(N_cloth-1);
@@ -167,14 +153,14 @@ void scene_model::initialize()
     // Init particles data (speed, force)
     speed.resize(position.dimension); speed.fill({0,0,0});
     force.resize(position.dimension); force.fill({0,0,0});
-
-    // Sphere is at rest
-    sphere_speed = vec3(0, 0, 0);
+    spheres_speed.resize(N_SPHERE); spheres_speed.fill({0,0,0});
+    collision_impulsion_frame.resize(N_SPHERE); collision_impulsion_frame.fill(0);
 
     // Set collision shapes
-    collision_shapes.sphere_p = {0.51,2.0f,0};
-    collision_shapes.sphere_r = 0.1f;
-    collision_shapes.ground_height = 0.1f;
+    collision_shapes.spheres_p.resize(N_SPHERE);
+    collision_shapes.spheres_r.resize(N_SPHERE); collision_shapes.spheres_r.fill(0.08f);
+    for (int i = 0; i < N_SPHERE; i++)
+      collision_shapes.spheres_p[i] = {i / (float)N_SPHERE + 0.2,(i+2)*0.7f,0};
 
 
     // Store connectivity and normals
@@ -221,10 +207,6 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
     sphere.shader = shaders["mesh"];
     sphere.uniform.color = {1,0,0};
 
-    ground = mesh_drawable(mesh_primitive_quad({-1,collision_shapes.ground_height-1e-3f,-1}, {1,collision_shapes.ground_height-1e-3f,-1}, {1,collision_shapes.ground_height-1e-3f,1}, {-1,collision_shapes.ground_height-1e-3f,1}));
-    ground.shader = shaders["mesh_bf"];
-    ground.texture_id = texture_wood;
-
     gui_display_texture = true;
     gui_display_wireframe = false;
 }
@@ -261,8 +243,10 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
     cloth.update_normal(normals.data);
 
     display_elements(shaders, scene, gui);
-    if (collision_impulsion_frame > 0)
-        collision_impulsion_frame--;
+    for (int sphere = 0; sphere < N_SPHERE; sphere++) {
+      if (collision_impulsion_frame[sphere] > 0)
+        collision_impulsion_frame[sphere]--;
+    }
 
 }
 
@@ -281,12 +265,16 @@ void scene_model::numerical_integration(float h)
         p = p + h*v;
     }
 
-    if (collision_impulsion_frame > 0)
-      sphere_speed -= 5 * vec3(0, -9.81, 0) * h; // Jump impulsion
-    else
-      sphere_speed += vec3(0, -9.81, 0) * h;
+    for (int sphere = 0; sphere < N_SPHERE; sphere++) {
+      if (collision_impulsion_frame[sphere] > 0){
+        spheres_speed[sphere] -= 3 * vec3(0, -9.81, 0) * h; // Jump impulsion
+        printf("spehere %d, frame %d\n", sphere,  collision_impulsion_frame[sphere]);
+      }
+      else
+        spheres_speed[sphere] += vec3(0, -9.81, 0) * h;
 
-    collision_shapes.sphere_p += sphere_speed * h;
+      collision_shapes.spheres_p[sphere] += spheres_speed[sphere] * h;
+    }
 }
 
 void scene_model::hard_constraints()
@@ -318,6 +306,8 @@ void scene_model::display_elements(std::map<std::string,GLuint>& shaders, scene_
 
     // Display positional constraint using spheres
     sphere.uniform.transform.scaling = 0.02f;
+    sphere.uniform.color = {0.4, 0.4, 0.6};
+    sphere.uniform.shading.specular = 0.3f;
     for(const auto& constraints : positional_constraints)  {
         sphere.uniform.transform.translation = constraints.second;
         draw(sphere, scene.camera, shaders["mesh"]);
@@ -325,12 +315,14 @@ void scene_model::display_elements(std::map<std::string,GLuint>& shaders, scene_
 
 
     // Display sphere used for collision
-    sphere.uniform.transform.scaling     = collision_shapes.sphere_r;
-    sphere.uniform.transform.translation = collision_shapes.sphere_p;
-    draw(sphere, scene.camera, shaders["mesh"]);
+    sphere.uniform.shading.specular = 0.0f;
+    sphere.uniform.color = {1, 0.7, 0.2};
+    for (int sphereId = 0; sphereId < N_SPHERE; sphereId++) {
+      sphere.uniform.transform.scaling     = collision_shapes.spheres_r[sphereId];
+      sphere.uniform.transform.translation = collision_shapes.spheres_p[sphereId];
+      draw(sphere, scene.camera, shaders["mesh"]);
+    }
 
-    // Display ground
-    draw(ground, scene.camera);
     glBindTexture(GL_TEXTURE_2D, scene.texture_white);
 }
 
@@ -379,7 +371,6 @@ void scene_model::set_gui()
     ImGui::SliderFloat("Stiffness", &user_parameters.K, 1.0f, 400.0f, "%.2f s");
     ImGui::SliderFloat("Damping", &user_parameters.mu, 0.0f, 0.1f, "%.3f s");
     ImGui::SliderFloat("Mass", &user_parameters.m, 1.0f, 15.0f, "%.2f s");
-    ImGui::SliderFloat("Wind", &user_parameters.wind, 0.0f, 400.0f, "%.2f s");
 
     ImGui::Checkbox("Wireframe",&gui_display_wireframe);
     ImGui::Checkbox("Texture",&gui_display_texture);

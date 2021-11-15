@@ -23,9 +23,8 @@ struct simulation_parameters_structure
 // Sphere and ground used for collision
 struct collision_shapes_structure
 {
-    vcl::vec3 sphere_p;  // position of the colliding sphere
-    float sphere_r;      // radius of the colliding sphere
-    float ground_height; // height of the ground (in y-coordinate)
+    vcl::buffer<vcl::vec3> spheres_p;  // position of the colliding sphere
+    vcl::buffer<float> spheres_r;      // radius of the colliding sphere
 };
 
 
@@ -37,12 +36,10 @@ struct scene_model : scene_base
     vcl::buffer2D<vcl::vec3> speed;
     vcl::buffer2D<vcl::vec3> force;
 
-    vcl::vec3 sphere_speed;
+    vcl::buffer<vcl::vec3> spheres_speed;
     float sphere_mass;
 
-    int collision_impulsion_frame;
-
-    PerlinNoise noise;
+    vcl::buffer<int> collision_impulsion_frame;
 
     // Simulation parameters
     simulation_parameters_structure simulation_parameters; // parameters that user can control directly
